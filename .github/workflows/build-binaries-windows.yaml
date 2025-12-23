@@ -49,7 +49,18 @@ jobs:
           # but on Windows we should use the native compiler or let Go handle it
           make build/tsh build/tctl CGOFLAG="CGO_ENABLED=1"
           echo "Build completed. Checking for binaries:"
-          ls -la build/*.exe 2>/dev/null || echo "No .exe files found in build/"
+          ls -la build/ || true
+          # Ensure binaries have .exe extension (Go should add it automatically, but ensure it)
+          cd build
+          for bin in tsh tctl; do
+            if [ -f "$bin" ] && [ ! -f "$bin.exe" ]; then
+              echo "Renaming $bin to $bin.exe"
+              mv "$bin" "$bin.exe"
+            elif [ -f "$bin.exe" ]; then
+              echo "Found $bin.exe"
+            fi
+          done
+          ls -la *.exe 2>/dev/null || echo "No .exe files found"
 
       - name: List built files
         shell: bash
@@ -70,10 +81,22 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $exeFiles = Get-ChildItem -Path build -Filter "*.exe" -ErrorAction SilentlyContinue
+          # Look for .exe files, or binaries without extension that should be .exe
+          $exeFiles = @()
+          $exeFiles += Get-ChildItem -Path build -Filter "*.exe" -ErrorAction SilentlyContinue
+          # Also check for tsh and tctl without extension (in case Go didn't add .exe)
+          foreach ($bin in @("tsh", "tctl")) {
+            $binPath = Join-Path build $bin
+            $exePath = Join-Path build "$bin.exe"
+            if ((Test-Path $binPath) -and -not (Test-Path $exePath)) {
+              Write-Host "Renaming $bin to $bin.exe"
+              Rename-Item -Path $binPath -NewName "$bin.exe"
+              $exeFiles += Get-Item $exePath
+            }
+          }
           if ($exeFiles.Count -eq 0) {
             Write-Error "No .exe files found in build directory"
-            Get-ChildItem -Path build -Recurse | Format-Table
+            Get-ChildItem -Path build | Format-Table
             exit 1
           }
           Write-Host "Found $($exeFiles.Count) .exe file(s):"
