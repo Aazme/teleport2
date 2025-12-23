@@ -55,6 +55,8 @@ jobs:
         run: |
           cd build.assets
           make webassets
+        env:
+          GOCACHE: /tmp/gocache
 
       - name: Build archive (required for .deb)
         run: |
