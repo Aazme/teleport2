@@ -1,5 +1,10 @@
 name: Build Docker Images
 run-name: Build Docker Images
+# This workflow builds OSS/Community Edition Teleport Docker images following
+# the official build process documented in README.md. It uses the dockerized
+# build approach (make -C build.assets build-binaries) and explicitly builds
+# OSS packages (oss-deb) which are licensed under the modified Apache 2.0
+# license (build.assets/LICENSE-community).
 
 on:
   workflow_dispatch:
@@ -20,22 +25,6 @@ jobs:
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
         with:
           driver: docker
-
-      - name: Get Go version
-        id: go-version
-        run: |
-          GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
-          echo "go-version=${GO_VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ steps.go-version.outputs.go-version }}
-          cache: false
-
-      - name: Build binaries for package
-        run: |
-          make build/tsh build/tbot build/tctl build/teleport
 
       - name: Get version
         id: version
@@ -61,7 +50,7 @@ jobs:
             -e GOMODCACHE=/tmp/gomodcache \
             -e CI=true \
             ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-amd64 \
-            make -C /go/src/github.com/gravitational/teleport build-archive
+            make -C /go/src/github.com/gravitational/teleport full build-archive
 
       - name: Build .deb package
         run: |

@@ -49,11 +49,10 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Create zip archive
-        shell: bash
+        shell: pwsh
         run: |
-          cd build
-          zip -r ../teleport-windows-binaries-${VERSION}.zip *.exe
-          cd ..
+          $version = "${{ steps.version.outputs.version }}"
+          Compress-Archive -Path build/*.exe -DestinationPath "teleport-windows-binaries-$version.zip" -Force
 
       - name: Upload Windows binaries
         uses: actions/upload-artifact@v4
