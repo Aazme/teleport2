@@ -1,0 +1,283 @@
+name: Build Binaries and Docker Images
+run-name: Build Binaries and Docker Images
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-binaries-linux:
+    name: Build Binaries (Linux)
+    runs-on: ubuntu-22.04-32core
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        with:
+          driver: docker
+
+      - name: Build binaries
+        run: |
+          cd build.assets
+          make build-binaries
+
+      - name: Upload Linux binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: |
+            build/tsh
+            build/tbot
+            build/tctl
+            build/teleport
+          if-no-files-found: error
+
+  build-binaries-macos:
+    name: Build Binaries (macOS)
+    runs-on: macos-13-xlarge
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Fix home dir perms
+        run: sudo chown -R $(id -u):$(id -g) $HOME/.cache $HOME/.config
+
+      - name: Determine Toolchain Versions
+        id: toolchain
+        run: |
+          echo "node-version=$(make -s -C build.assets print-node-version)" >> $GITHUB_OUTPUT
+          echo "go-version=$(make -s -C build.assets print-go-version | sed 's/^go//')" >> $GITHUB_OUTPUT
+          echo "rust-version=$(make -s -C build.assets print-rust-version)" >> $GITHUB_OUTPUT
+          echo "PKG_CONFIG_PATH=$(build.assets/build-fido2-macos.sh pkg_config_path)" >> $GITHUB_ENV
+
+      - name: Install Node Toolchain
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchain.outputs.node-version }}
+
+      - name: Setup pnpm
+        run: corepack enable pnpm
+
+      - name: Install Go Toolchain
+        uses: actions/setup-go@v5
+        with:
+          cache: false
+          go-version: ${{ steps.toolchain.outputs.go-version }}
+
+      - name: Configure Rust Toolchain
+        run: rustup override set ${{ steps.toolchain.outputs.rust-version }}
+
+      - name: Install wasm-pack
+        run: make ensure-wasm-deps
+
+      - name: Build binaries
+        run: make binaries
+
+      - name: Upload macOS binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: |
+            build/tsh
+            build/tbot
+            build/tctl
+            build/teleport
+          if-no-files-found: error
+
+  build-binaries-windows:
+    name: Build Binaries (Windows)
+    runs-on: windows-2022-16core
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Get Go version
+        id: go-version
+        shell: bash
+        run: echo "go-version=$(make -s print-go-version | tr -d '\n')" >> $GITHUB_OUTPUT
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          cache: false
+          go-version: ${{ steps.go-version.outputs.go-version }}
+
+      - name: Build binaries
+        shell: bash
+        run: |
+          export OS="windows"
+          make build/tsh build/tctl build/tbot
+
+      - name: Upload Windows binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            build/tsh.exe
+            build/tctl.exe
+            build/tbot.exe
+          if-no-files-found: error
+
+  build-packages:
+    name: Build Debian Packages
+    runs-on: ubuntu-22.04-32core
+    needs: build-binaries-linux
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        with:
+          driver: docker
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binaries
+          path: build/
+
+      - name: Make binaries executable
+        run: |
+          chmod +x build/tsh build/tbot build/tctl build/teleport
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep '^VERSION=' Makefile | cut -d= -f2 | tr -d ' ')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Get architecture
+        id: arch
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            ARCH="amd64"
+          fi
+          echo "arch=${ARCH}" >> $GITHUB_OUTPUT
+
+      - name: Build archive (required for .deb)
+        run: |
+          cd build.assets
+          docker run --rm \
+            -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
+            -w /go/src/github.com/gravitational/teleport \
+            -e GOMODCACHE=/tmp/gomodcache \
+            -e CI=true \
+            ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-amd64 \
+            make -C /go/src/github.com/gravitational/teleport build-archive
+
+      - name: Build .deb package
+        run: |
+          cd build.assets
+          docker run --rm \
+            -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
+            -w /go/src/github.com/gravitational/teleport \
+            -e GOMODCACHE=/tmp/gomodcache \
+            -e CI=true \
+            ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-amd64 \
+            make -C /go/src/github.com/gravitational/teleport oss-deb
+
+      - name: Upload .deb package
+        uses: actions/upload-artifact@v4
+        with:
+          name: teleport-deb-package
+          path: build/*.deb
+          if-no-files-found: error
+
+  build-docker-images:
+    name: Build Docker Images
+    runs-on: ubuntu-22.04-32core
+    needs: build-packages
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        with:
+          driver: docker
+
+      - name: Download .deb package
+        uses: actions/download-artifact@v4
+        with:
+          name: teleport-deb-package
+          path: build/
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep '^VERSION=' Makefile | cut -d= -f2 | tr -d ' ')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Get architecture
+        id: arch
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            ARCH="amd64"
+          fi
+          echo "arch=${ARCH}" >> $GITHUB_OUTPUT
+
+      - name: Copy fetch-debs script
+        run: |
+          cp build.assets/charts/fetch-debs build/
+
+      - name: Prepare .deb file for Docker build
+        run: |
+          DEB_FILE=$(find build/ -name "teleport_*.deb" -type f | head -1)
+          if [ -z "$DEB_FILE" ]; then
+            echo "Error: .deb file not found"
+            exit 1
+          fi
+          EXPECTED_NAME="teleport_${{ steps.version.outputs.version }}_${{ steps.arch.outputs.arch }}.deb"
+          if [ "$(basename "$DEB_FILE")" != "$EXPECTED_NAME" ]; then
+            cp "$DEB_FILE" "build/$EXPECTED_NAME"
+          fi
+
+      - name: Build Teleport Docker image
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: build/
+          file: build.assets/charts/Dockerfile-distroless
+          push: false
+          tags: teleport:${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}
+          build-args: |
+            TELEPORT_VERSION=${{ steps.version.outputs.version }}
+            TELEPORT_RELEASE_INFIX=
+            TARGETARCH=${{ steps.arch.outputs.arch }}
+          load: true
+
+      - name: Save Docker image
+        run: |
+          docker save teleport:${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }} \
+            -o build/teleport-image-${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}.tar
+
+      - name: Upload Docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: teleport-docker-image
+          path: build/teleport-image-*.tar
+          if-no-files-found: error
+
