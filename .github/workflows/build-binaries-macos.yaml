@@ -28,7 +28,7 @@ jobs:
           echo "PKG_CONFIG_PATH=$(build.assets/build-fido2-macos.sh pkg_config_path)" >> $GITHUB_ENV
 
       - name: Install Node Toolchain
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ steps.toolchain.outputs.node-version }}
 
