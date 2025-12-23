@@ -41,26 +41,43 @@ jobs:
           fi
           echo "arch=${ARCH}" >> $GITHUB_OUTPUT
 
+      - name: Build buildbox-centos7 (from source)
+        run: |
+          cd build.assets
+          make buildbox-centos7
+
+      - name: Build webassets (required for teleport binary)
+        run: |
+          cd build.assets
+          make webassets
+
       - name: Build archive (required for .deb)
         run: |
           cd build.assets
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+          BUILDBOX_IMAGE="ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-${ARCH}"
           docker run --rm \
             -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
             -w /go/src/github.com/gravitational/teleport \
             -e GOMODCACHE=/tmp/gomodcache \
             -e CI=true \
-            ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-amd64 \
+            -e WEBASSETS_SKIP_BUILD=1 \
+            $BUILDBOX_IMAGE \
             make -C /go/src/github.com/gravitational/teleport full build-archive
 
       - name: Build .deb package
         run: |
           cd build.assets
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+          BUILDBOX_IMAGE="ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-${ARCH}"
           docker run --rm \
             -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
             -w /go/src/github.com/gravitational/teleport \
             -e GOMODCACHE=/tmp/gomodcache \
             -e CI=true \
-            ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-amd64 \
+            $BUILDBOX_IMAGE \
             make -C /go/src/github.com/gravitational/teleport oss-deb
 
       - name: Upload .deb package
