@@ -70,8 +70,9 @@ jobs:
             -e GOMODCACHE=/tmp/gomodcache \
             -e CI=true \
             -e WEBASSETS_SKIP_BUILD=1 \
+            -e RDPCLIENT_SKIP_BUILD=1 \
             $BUILDBOX_IMAGE \
-            make -C /go/src/github.com/gravitational/teleport full build-archive
+            bash -c "rm -rf target/release/build target/release/deps/rdp_client* 2>/dev/null || true && make -C /go/src/github.com/gravitational/teleport full build-archive"
 
       - name: Build .deb package
         run: |
