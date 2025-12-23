@@ -41,6 +41,11 @@ jobs:
           fi
           echo "arch=${ARCH}" >> $GITHUB_OUTPUT
 
+      - name: Build buildbox-centos7-assets (from source)
+        run: |
+          cd build.assets
+          make build-centos7-assets
+
       - name: Build buildbox-centos7 (from source)
         run: |
           cd build.assets
