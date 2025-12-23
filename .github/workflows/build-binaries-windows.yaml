@@ -27,11 +27,29 @@ jobs:
           cache: false
           go-version: ${{ steps.go-version.outputs.go-version }}
 
+      - name: Install C compiler (for CGO)
+        shell: pwsh
+        run: |
+          # On Windows runners, we need a C compiler for CGO
+          # Check if gcc is available, if not we'll try to use the native Go compiler
+          $gcc = Get-Command gcc -ErrorAction SilentlyContinue
+          if (-not $gcc) {
+            Write-Host "gcc not found. CGO builds may fail. Trying without explicit CC/CXX..."
+          } else {
+            Write-Host "Found gcc at: $($gcc.Path)"
+          }
+
       - name: Build binaries
         shell: bash
         run: |
           export OS="windows"
-          make build/tsh build/tctl
+          export ARCH="amd64"
+          # On native Windows builds, override CGOFLAG to not use Linux cross-compilation tools
+          # The Makefile sets CC=x86_64-w64-mingw32-gcc for cross-compilation from Linux,
+          # but on Windows we should use the native compiler or let Go handle it
+          make build/tsh build/tctl CGOFLAG="CGO_ENABLED=1"
+          echo "Build completed. Checking for binaries:"
+          ls -la build/*.exe 2>/dev/null || echo "No .exe files found in build/"
 
       - name: List built files
         shell: bash
@@ -52,7 +70,23 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          Compress-Archive -Path build/*.exe -DestinationPath "teleport-windows-binaries-$version.zip" -Force
+          $exeFiles = Get-ChildItem -Path build -Filter "*.exe" -ErrorAction SilentlyContinue
+          if ($exeFiles.Count -eq 0) {
+            Write-Error "No .exe files found in build directory"
+            Get-ChildItem -Path build -Recurse | Format-Table
+            exit 1
+          }
+          Write-Host "Found $($exeFiles.Count) .exe file(s):"
+          $exeFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
+          $zipPath = "teleport-windows-binaries-$version.zip"
+          Compress-Archive -Path $exeFiles.FullName -DestinationPath $zipPath -Force
+          if (Test-Path $zipPath) {
+            Write-Host "Successfully created $zipPath"
+            Get-Item $zipPath | Format-List
+          } else {
+            Write-Error "Failed to create zip file"
+            exit 1
+          }
 
       - name: Upload Windows binaries
         uses: actions/upload-artifact@v4
