@@ -1,0 +1,63 @@
+name: Build Binaries (macOS)
+run-name: Build Binaries (macOS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-binaries-macos:
+    name: Build Binaries (macOS)
+    runs-on: macos-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Fix home dir perms
+        run: sudo chown -R $(id -u):$(id -g) $HOME/.cache $HOME/.config
+
+      - name: Determine Toolchain Versions
+        id: toolchain
+        run: |
+          echo "node-version=$(make -s -C build.assets print-node-version)" >> $GITHUB_OUTPUT
+          echo "go-version=$(make -s -C build.assets print-go-version | sed 's/^go//')" >> $GITHUB_OUTPUT
+          echo "rust-version=$(make -s -C build.assets print-rust-version)" >> $GITHUB_OUTPUT
+          echo "PKG_CONFIG_PATH=$(build.assets/build-fido2-macos.sh pkg_config_path)" >> $GITHUB_ENV
+
+      - name: Install Node Toolchain
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchain.outputs.node-version }}
+
+      - name: Setup pnpm
+        run: corepack enable pnpm
+
+      - name: Install Go Toolchain
+        uses: actions/setup-go@v5
+        with:
+          cache: false
+          go-version: ${{ steps.toolchain.outputs.go-version }}
+
+      - name: Configure Rust Toolchain
+        run: rustup override set ${{ steps.toolchain.outputs.rust-version }}
+
+      - name: Install wasm-pack
+        run: make ensure-wasm-deps
+
+      - name: Build binaries
+        run: |
+          make build/tsh build/tbot build/tctl
+
+      - name: Upload macOS binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: |
+            build/tsh
+            build/tbot
+            build/tctl
+          if-no-files-found: error
+

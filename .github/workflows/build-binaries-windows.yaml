@@ -1,0 +1,64 @@
+name: Build Binaries (Windows)
+run-name: Build Binaries (Windows)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-binaries-windows:
+    name: Build Binaries (Windows)
+    runs-on: windows-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Get Go version
+        id: go-version
+        shell: bash
+        run: echo "go-version=$(make -s print-go-version | tr -d '\n')" >> $GITHUB_OUTPUT
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          cache: false
+          go-version: ${{ steps.go-version.outputs.go-version }}
+
+      - name: Build binaries
+        shell: bash
+        run: |
+          export OS="windows"
+          make build/tsh build/tctl
+
+      - name: List built files
+        shell: bash
+        run: |
+          echo "Files in build directory:"
+          ls -la build/ || true
+          echo "Looking for Windows binaries:"
+          find build/ -name "*.exe" -type f || true
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep '^VERSION=' Makefile | cut -d= -f2 | tr -d ' ')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create zip archive
+        shell: bash
+        run: |
+          cd build
+          zip -r ../teleport-windows-binaries-${VERSION}.zip *.exe
+          cd ..
+
+      - name: Upload Windows binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: teleport-windows-binaries-*.zip
+          if-no-files-found: error
+
