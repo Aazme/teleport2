@@ -120,7 +120,14 @@ jobs:
       - name: Build webassets (required for teleport binary)
         run: |
           cd build.assets
-          make webassets
+          # Set non-root UID/GID if running as root (UID 0)
+          RUNNER_UID=$(id -u)
+          RUNNER_GID=$(id -g)
+          if [ "$RUNNER_UID" = "0" ]; then
+            RUNNER_UID=1000
+            RUNNER_GID=1000
+          fi
+          make webassets UID=$RUNNER_UID GID=$RUNNER_GID
         env:
           GOCACHE: /tmp/gocache
 
