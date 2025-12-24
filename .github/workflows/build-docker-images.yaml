@@ -18,6 +18,22 @@ jobs:
       contents: read
 
     steps:
+      - name: Install build tools
+        run: |
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y make build-essential
+          elif command -v yum &> /dev/null; then
+            sudo yum install -y make gcc
+          elif command -v dnf &> /dev/null; then
+            sudo dnf install -y make gcc
+          elif command -v apk &> /dev/null; then
+            sudo apk add make gcc musl-dev
+          else
+            echo "Unknown package manager. Please install make manually."
+            exit 1
+          fi
+
       - name: Checkout Teleport
         uses: actions/checkout@v4
 
@@ -105,6 +121,22 @@ jobs:
       contents: read
 
     steps:
+      - name: Install build tools
+        run: |
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y make build-essential
+          elif command -v yum &> /dev/null; then
+            sudo yum install -y make gcc
+          elif command -v dnf &> /dev/null; then
+            sudo dnf install -y make gcc
+          elif command -v apk &> /dev/null; then
+            sudo apk add make gcc musl-dev
+          else
+            echo "Unknown package manager. Please install make manually."
+            exit 1
+          fi
+
       - name: Checkout Teleport
         uses: actions/checkout@v4
 
