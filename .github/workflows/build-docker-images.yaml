@@ -2,7 +2,7 @@ name: Build Docker Images
 run-name: Build Docker Images
 # This workflow builds OSS/Community Edition Teleport Docker images following
 # the official build process documented in README.md. It uses the dockerized
-# build approach (make -C build.assets build-binaries) and explicitly builds
+# build approach (make -C build.assets release) and explicitly builds
 # OSS packages (oss-deb) which are licensed under the modified Apache 2.0
 # license (build.assets/LICENSE-community).
 
@@ -10,39 +10,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-packages:
-    name: Build Debian Packages
+  build-docker-images:
+    name: Build Docker Images
     runs-on: self-hosted
 
     permissions:
       contents: read
 
     steps:
-    #   - name: Install build tools
-    #     run: |
-    #       set -e
-    #       echo "Checking for make..."
-    #       if command -v make &> /dev/null; then
-    #         echo "make is already installed: $(make --version | head -1)"
-    #       else
-    #         echo "make not found, installing..."
-    #         if command -v apt-get &> /dev/null; then
-    #           sudo apt-get update
-    #           sudo apt-get install -y make build-essential
-    #         elif command -v yum &> /dev/null; then
-    #           sudo yum install -y make gcc
-    #         elif command -v dnf &> /dev/null; then
-    #           sudo dnf install -y make gcc
-    #         elif command -v apk &> /dev/null; then
-    #           sudo apk add make gcc musl-dev
-    #         else
-    #           echo "Unknown package manager. Please install make manually."
-    #           exit 1
-    #         fi
-    #         echo "Verifying make installation..."
-    #         make --version || (echo "make installation failed" && exit 1)
-    #       fi
-
       - name: Checkout Teleport
         uses: actions/checkout@v4
 
@@ -87,13 +62,11 @@ jobs:
           fi
           echo "arch=${ARCH}" >> $GITHUB_OUTPUT
 
-      - name: Build buildbox-centos7-assets (from source)
+      - name: Build buildbox-centos7-assets (from source for licensing)
         run: |
           cd build.assets
-          # Ensure ARCH is set correctly for the build
           ARCH=$(uname -m)
           if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
-          # Set non-root UID/GID if running as root (UID 0)
           RUNNER_UID=$(id -u)
           RUNNER_GID=$(id -g)
           if [ "$RUNNER_UID" = "0" ]; then
@@ -102,13 +75,11 @@ jobs:
           fi
           make build-centos7-assets ARCH=$ARCH UID=$RUNNER_UID GID=$RUNNER_GID
 
-      - name: Build buildbox-centos7 (from source)
+      - name: Build buildbox-centos7 (from source for licensing)
         run: |
           cd build.assets
-          # Ensure ARCH is set correctly for the build
           ARCH=$(uname -m)
           if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
-          # Set non-root UID/GID if running as root (UID 0)
           RUNNER_UID=$(id -u)
           RUNNER_GID=$(id -g)
           if [ "$RUNNER_UID" = "0" ]; then
@@ -117,165 +88,39 @@ jobs:
           fi
           make buildbox-centos7 ARCH=$ARCH UID=$RUNNER_UID GID=$RUNNER_GID
 
-      - name: Build webassets (required for teleport binary)
-        run: |
-          cd build.assets
-          # Set non-root UID/GID if running as root (UID 0)
-          RUNNER_UID=$(id -u)
-          RUNNER_GID=$(id -g)
-          if [ "$RUNNER_UID" = "0" ]; then
-            RUNNER_UID=1000
-            RUNNER_GID=1000
-            # Fix permissions on workspace and cache directories for container user
-            chown -R $RUNNER_UID:$RUNNER_GID "$(pwd)/.." /tmp/gocache 2>/dev/null || true
-            # Ensure directories are writable
-            chmod -R u+w "$(pwd)/.." /tmp/gocache 2>/dev/null || true
-          fi
-          make webassets UID=$RUNNER_UID GID=$RUNNER_GID
-        env:
-          GOCACHE: /tmp/gocache
-
-      - name: Build archive (required for .deb)
+      - name: Build release (following README dockerized build)
         run: |
           cd build.assets
           ARCH=$(uname -m)
           if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
-          # Set non-root UID/GID if running as root (UID 0)
           RUNNER_UID=$(id -u)
           RUNNER_GID=$(id -g)
           if [ "$RUNNER_UID" = "0" ]; then
             RUNNER_UID=1000
             RUNNER_GID=1000
-            # Fix permissions on workspace and cache directories for container user
             chown -R $RUNNER_UID:$RUNNER_GID "$(pwd)/.." /tmp/gomodcache /tmp/gocache 2>/dev/null || true
             chmod -R u+w "$(pwd)/.." /tmp/gomodcache /tmp/gocache 2>/dev/null || true
           fi
-          # Create and fix permissions on cache directory
           mkdir -p /tmp/gocache
           chown -R $RUNNER_UID:$RUNNER_GID /tmp/gocache 2>/dev/null || true
           chmod -R 777 /tmp/gocache 2>/dev/null || true
-          BUILDBOX_IMAGE="ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-${ARCH}"
-          # First run as root to set up cache directory, then run as user
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
-            -v /tmp/gocache:/go/cache \
-            $BUILDBOX_IMAGE \
-            -c "mkdir -p /go/cache && chown -R $RUNNER_UID:$RUNNER_GID /go/cache && chmod -R 755 /go/cache"
-          docker run --rm \
-            -u $RUNNER_UID:$RUNNER_GID \
-            -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
-            -w /go/src/github.com/gravitational/teleport \
-            -e GOMODCACHE=/tmp/gomodcache \
-            -e GOCACHE=/go/cache \
-            -v /tmp/gocache:/go/cache \
-            -e CI=true \
-            -e WEBASSETS_SKIP_BUILD=1 \
-            -e RDPCLIENT_SKIP_BUILD=1 \
-            -e ADDFLAGS="-buildvcs=false" \
-            $BUILDBOX_IMAGE \
-            bash -c "rm -rf target/release/build target/release/deps/rdp_client* 2>/dev/null || true && make -C /go/src/github.com/gravitational/teleport full build-archive"
+          # Follow README: make -C build.assets release
+          # This uses the locally built buildbox and builds binaries + archive
+          export ARCH=$ARCH
+          export CI=true
+          export GOCACHE=/tmp/gocache
+          export GOMODCACHE=/tmp/gomodcache
+          make release-centos7 ARCH=$ARCH ADDFLAGS="-buildvcs=false"
 
       - name: Build .deb package
         run: |
           # Build .deb package directly on host (no Docker-in-Docker needed)
-          # The archive is already built, we just need to package it
+          # The archive is already built by release-centos7 above
           # build-package.sh will use Docker from the host to run the FPM container
           ARCH=$(uname -m)
           if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
           VERSION=$(grep '^VERSION=' Makefile | cut -d= -f2 | tr -d ' ')
           make oss-deb ARCH=$ARCH VERSION=$VERSION
-
-      - name: Upload .deb package
-        uses: actions/upload-artifact@v4
-        with:
-          name: teleport-deb-package
-          path: build/*.deb
-          if-no-files-found: error
-
-  build-docker-images:
-    name: Build Docker Images
-    runs-on: self-hosted
-    needs: build-packages
-
-    permissions:
-      contents: read
-
-    steps:
-      - name: Install build tools
-        run: |
-          set -e
-          echo "Checking for make..."
-          if command -v make &> /dev/null; then
-            echo "make is already installed: $(make --version | head -1)"
-          else
-            echo "make not found, installing..."
-            if command -v apt-get &> /dev/null; then
-              sudo apt-get update
-              sudo apt-get install -y make build-essential
-            elif command -v yum &> /dev/null; then
-              sudo yum install -y make gcc
-            elif command -v dnf &> /dev/null; then
-              sudo dnf install -y make gcc
-            elif command -v apk &> /dev/null; then
-              sudo apk add make gcc musl-dev
-            else
-              echo "Unknown package manager. Please install make manually."
-              exit 1
-            fi
-            echo "Verifying make installation..."
-            make --version || (echo "make installation failed" && exit 1)
-          fi
-
-      - name: Install Go
-        run: |
-          set -e
-          echo "Checking for Go..."
-          if command -v go &> /dev/null; then
-            echo "Go is already installed: $(go version)"
-          else
-            echo "Go not found, installing..."
-            GO_VERSION=$(cd build.assets && make -s print-go-version 2>/dev/null | sed 's/go//' || echo "1.24.6")
-            echo "Installing Go ${GO_VERSION}..."
-            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
-            sudo rm -rf /usr/local/go
-            sudo tar -C /usr/local -xzf /tmp/go.tar.gz
-            echo "export PATH=/usr/local/go/bin:\$PATH" | sudo tee -a /etc/profile.d/go.sh
-            export PATH=/usr/local/go/bin:$PATH
-            echo "Verifying Go installation..."
-            /usr/local/go/bin/go version || (echo "Go installation failed" && exit 1)
-          fi
-          # Ensure Go is in PATH for subsequent steps
-          echo "/usr/local/go/bin" >> $GITHUB_PATH
-
-      - name: Checkout Teleport
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
-        with:
-          driver: docker
-
-      - name: Download .deb package
-        uses: actions/download-artifact@v4
-        with:
-          name: teleport-deb-package
-          path: build/
-
-      - name: Get version
-        id: version
-        run: |
-          VERSION=$(grep '^VERSION=' Makefile | cut -d= -f2 | tr -d ' ')
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Get architecture
-        id: arch
-        run: |
-          ARCH=$(uname -m)
-          if [ "$ARCH" = "x86_64" ]; then
-            ARCH="amd64"
-          fi
-          echo "arch=${ARCH}" >> $GITHUB_OUTPUT
 
       - name: Copy fetch-debs script
         run: |
@@ -335,4 +180,3 @@ jobs:
           name: teleport-docker-image
           path: build/teleport-image-*.tar
           if-no-files-found: warn
-
