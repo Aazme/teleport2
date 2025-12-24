@@ -114,6 +114,7 @@ jobs:
           file: integrations/operator/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          no-cache: true
           build-args: |
             GOLANG_VERSION=${{ steps.go-version.outputs.go-version }}
             PROTOC_VERSION=${{ steps.protoc-version.outputs.protoc-version }}

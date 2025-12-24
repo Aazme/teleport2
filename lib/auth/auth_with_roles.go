@@ -4636,7 +4636,19 @@ func (a *ServerWithRoles) UpsertRole(ctx context.Context, role types.Role) (type
 }
 
 func checkRoleFeatureSupport(role types.Role) error {
-
+	// In OSS builds, we allow all role features including review_requests.
+	// Explicitly check if review_requests is set and allow it in OSS builds.
+	allowReview := role.GetAccessReviewConditions(types.Allow)
+	denyReview := role.GetAccessReviewConditions(types.Deny)
+	
+	// If review_requests is set in either allow or deny, we allow it in OSS builds.
+	// The enterprise module may override this function to add additional checks,
+	// but for OSS, we explicitly allow review_requests.
+	if !allowReview.IsEmpty() || !denyReview.IsEmpty() {
+		// review_requests is set - allow it in OSS builds
+		return nil
+	}
+	
 	return nil
 }
 

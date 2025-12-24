@@ -62,6 +62,12 @@ jobs:
           fi
           echo "arch=${ARCH}" >> $GITHUB_OUTPUT
 
+      - name: Clean Docker cache (ensure fresh builds)
+        run: |
+          # Remove any cached buildbox images to ensure fresh builds
+          docker images | grep -E "teleport-buildbox|buildbox" | awk '{print $3}' | xargs -r docker rmi -f || true
+          docker builder prune -f || true
+
       - name: Build buildbox-centos7-assets (from source for licensing)
         run: |
           cd build.assets
@@ -73,7 +79,20 @@ jobs:
             RUNNER_UID=1000
             RUNNER_GID=1000
           fi
-          make build-centos7-assets ARCH=$ARCH UID=$RUNNER_UID GID=$RUNNER_GID
+          # Build without using cache-from to ensure fresh build with latest code
+          # Override the Makefile's cache-from by using docker buildx directly
+          BUILDBOX_CENTOS7_ASSETS="ghcr.io/gravitational/teleport-buildbox-centos7-assets:teleport18-${ARCH}"
+          docker buildx build --no-cache \
+            --target assets \
+            --build-arg UID=$RUNNER_UID \
+            --build-arg GID=$RUNNER_GID \
+            --build-arg BUILDARCH=$ARCH \
+            --build-arg TARGETARCH=$ARCH \
+            --build-arg RUST_VERSION=$(make -s print-rust-version) \
+            --build-arg WASM_PACK_VERSION=$(make -s print-wasm-pack-version) \
+            --build-arg DEVTOOLSET=$(make -s print-devtoolset) \
+            --tag $BUILDBOX_CENTOS7_ASSETS \
+            -f Dockerfile-centos7-assets .
 
       - name: Build buildbox-centos7 (from source for licensing)
         run: |
@@ -86,7 +105,25 @@ jobs:
             RUNNER_UID=1000
             RUNNER_GID=1000
           fi
-          make buildbox-centos7 ARCH=$ARCH UID=$RUNNER_UID GID=$RUNNER_GID
+          # Build without using cache-from to ensure fresh build with latest code
+          # Override the Makefile's cache-from by using docker buildx directly
+          BUILDBOX_CENTOS7_ASSETS="ghcr.io/gravitational/teleport-buildbox-centos7-assets:teleport18-${ARCH}"
+          BUILDBOX_CENTOS7="ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-${ARCH}"
+          docker buildx build --no-cache \
+            --target buildbox \
+            --build-arg UID=$RUNNER_UID \
+            --build-arg GID=$RUNNER_GID \
+            --build-arg BUILDBOX_CENTOS7_ASSETS=$BUILDBOX_CENTOS7_ASSETS \
+            --build-arg BUILDARCH=$ARCH \
+            --build-arg TARGETARCH=$ARCH \
+            --build-arg GOLANG_VERSION=$(make -s print-go-version) \
+            --build-arg RUST_VERSION=$(make -s print-rust-version) \
+            --build-arg WASM_PACK_VERSION=$(make -s print-wasm-pack-version) \
+            --build-arg DEVTOOLSET=$(make -s print-devtoolset) \
+            --build-arg LIBBPF_VERSION=$(make -s print-libbpf-version) \
+            --build-arg LIBPCSCLITE_VERSION=$(make -s print-libpcsclite-version) \
+            --tag $BUILDBOX_CENTOS7 \
+            -f Dockerfile-centos7 .
 
       - name: Build release (following README dockerized build)
         run: |
@@ -162,6 +199,7 @@ jobs:
           file: build.assets/charts/Dockerfile-distroless
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          no-cache: true
           build-args: |
             TELEPORT_VERSION=${{ steps.version.outputs.version }}
             TELEPORT_RELEASE_INFIX=
