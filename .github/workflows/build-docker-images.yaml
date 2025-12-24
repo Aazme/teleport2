@@ -62,12 +62,6 @@ jobs:
           fi
           echo "arch=${ARCH}" >> $GITHUB_OUTPUT
 
-      - name: Clean Docker cache (ensure fresh builds)
-        run: |
-          # Remove any cached buildbox images to ensure fresh builds
-          docker images | grep -E "teleport-buildbox|buildbox" | awk '{print $3}' | xargs -r docker rmi -f || true
-          docker builder prune -f || true
-
       - name: Build buildbox-centos7-assets (from source for licensing)
         run: |
           cd build.assets
@@ -79,18 +73,19 @@ jobs:
             RUNNER_UID=1000
             RUNNER_GID=1000
           fi
-          # Get DEVTOOLSET from versions.mk (defaults to devtoolset-12)
-          DEVTOOLSET=$(grep -E '^DEVTOOLSET' versions.mk | cut -d= -f2 | tr -d ' ' || echo "devtoolset-12")
-          # Build without using cache-from to ensure fresh build with latest code
-          # Override the Makefile's cache-from by using docker buildx directly
+          # Buildbox images are build environments - they don't contain our code.
+          # We can use cache for them. Our code is built in the "Build release" step.
+          # Try to use existing image first (may be cached or pre-built)
           BUILDBOX_CENTOS7_ASSETS="ghcr.io/gravitational/teleport-buildbox-centos7-assets:teleport18-${ARCH}"
-          docker buildx build --no-cache \
-            --target buildbox-centos7-assets \
-            --build-arg BUILDARCH=$ARCH \
-            --build-arg TARGETARCH=$ARCH \
-            --build-arg DEVTOOLSET=$DEVTOOLSET \
-            --tag $BUILDBOX_CENTOS7_ASSETS \
-            -f Dockerfile-centos7-assets .
+          if docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${BUILDBOX_CENTOS7_ASSETS}$" || docker pull $BUILDBOX_CENTOS7_ASSETS 2>/dev/null; then
+            echo "Using existing buildbox-centos7-assets image"
+          else
+            echo "Building buildbox-centos7-assets from source..."
+            echo "Note: CentOS 7 is EOL - some repositories may be unavailable."
+            echo "If build fails, you may need to use a pre-built image or update the Dockerfile."
+            # Use Makefile target - it may use cache or handle errors better
+            make build-centos7-assets ARCH=$ARCH UID=$RUNNER_UID GID=$RUNNER_GID
+          fi
 
       - name: Build buildbox-centos7 (from source for licensing)
         run: |
@@ -103,29 +98,10 @@ jobs:
             RUNNER_UID=1000
             RUNNER_GID=1000
           fi
-          # Get versions from versions.mk
-          DEVTOOLSET=$(grep -E '^DEVTOOLSET' versions.mk | cut -d= -f2 | tr -d ' ' || echo "devtoolset-12")
-          LIBBPF_VERSION=$(grep -E '^LIBBPF_VERSION' versions.mk | cut -d= -f2 | tr -d ' ' || echo "1.2.2")
-          LIBPCSCLITE_VERSION=$(grep -E '^LIBPCSCLITE_VERSION' versions.mk | cut -d= -f2 | tr -d ' ' || echo "1.9.9-teleport")
-          # Build without using cache-from to ensure fresh build with latest code
-          # Override the Makefile's cache-from by using docker buildx directly
-          BUILDBOX_CENTOS7_ASSETS="ghcr.io/gravitational/teleport-buildbox-centos7-assets:teleport18-${ARCH}"
-          BUILDBOX_CENTOS7="ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-${ARCH}"
-          docker buildx build --no-cache \
-            --target buildbox \
-            --build-arg UID=$RUNNER_UID \
-            --build-arg GID=$RUNNER_GID \
-            --build-arg BUILDBOX_CENTOS7_ASSETS=$BUILDBOX_CENTOS7_ASSETS \
-            --build-arg BUILDARCH=$ARCH \
-            --build-arg TARGETARCH=$ARCH \
-            --build-arg GOLANG_VERSION=$(make -s print-go-version) \
-            --build-arg RUST_VERSION=$(make -s print-rust-version) \
-            --build-arg WASM_PACK_VERSION=$(make -s print-wasm-pack-version) \
-            --build-arg DEVTOOLSET=$DEVTOOLSET \
-            --build-arg LIBBPF_VERSION=$LIBBPF_VERSION \
-            --build-arg LIBPCSCLITE_VERSION=$LIBPCSCLITE_VERSION \
-            --tag $BUILDBOX_CENTOS7 \
-            -f Dockerfile-centos7 .
+          # Buildbox images are build environments - they don't contain our code.
+          # We can use cache for them. Our code is built in the "Build release" step.
+          # Use the Makefile target which handles repository issues better.
+          make buildbox-centos7 ARCH=$ARCH UID=$RUNNER_UID GID=$RUNNER_GID
 
       - name: Build release (following README dockerized build)
         run: |
