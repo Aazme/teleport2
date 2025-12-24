@@ -79,18 +79,16 @@ jobs:
             RUNNER_UID=1000
             RUNNER_GID=1000
           fi
+          # Get DEVTOOLSET from versions.mk (defaults to devtoolset-12)
+          DEVTOOLSET=$(grep -E '^DEVTOOLSET' versions.mk | cut -d= -f2 | tr -d ' ' || echo "devtoolset-12")
           # Build without using cache-from to ensure fresh build with latest code
           # Override the Makefile's cache-from by using docker buildx directly
           BUILDBOX_CENTOS7_ASSETS="ghcr.io/gravitational/teleport-buildbox-centos7-assets:teleport18-${ARCH}"
           docker buildx build --no-cache \
-            --target assets \
-            --build-arg UID=$RUNNER_UID \
-            --build-arg GID=$RUNNER_GID \
+            --target buildbox-centos7-assets \
             --build-arg BUILDARCH=$ARCH \
             --build-arg TARGETARCH=$ARCH \
-            --build-arg RUST_VERSION=$(make -s print-rust-version) \
-            --build-arg WASM_PACK_VERSION=$(make -s print-wasm-pack-version) \
-            --build-arg DEVTOOLSET=$(make -s print-devtoolset) \
+            --build-arg DEVTOOLSET=$DEVTOOLSET \
             --tag $BUILDBOX_CENTOS7_ASSETS \
             -f Dockerfile-centos7-assets .
 
@@ -105,6 +103,10 @@ jobs:
             RUNNER_UID=1000
             RUNNER_GID=1000
           fi
+          # Get versions from versions.mk
+          DEVTOOLSET=$(grep -E '^DEVTOOLSET' versions.mk | cut -d= -f2 | tr -d ' ' || echo "devtoolset-12")
+          LIBBPF_VERSION=$(grep -E '^LIBBPF_VERSION' versions.mk | cut -d= -f2 | tr -d ' ' || echo "1.2.2")
+          LIBPCSCLITE_VERSION=$(grep -E '^LIBPCSCLITE_VERSION' versions.mk | cut -d= -f2 | tr -d ' ' || echo "1.9.9-teleport")
           # Build without using cache-from to ensure fresh build with latest code
           # Override the Makefile's cache-from by using docker buildx directly
           BUILDBOX_CENTOS7_ASSETS="ghcr.io/gravitational/teleport-buildbox-centos7-assets:teleport18-${ARCH}"
@@ -119,9 +121,9 @@ jobs:
             --build-arg GOLANG_VERSION=$(make -s print-go-version) \
             --build-arg RUST_VERSION=$(make -s print-rust-version) \
             --build-arg WASM_PACK_VERSION=$(make -s print-wasm-pack-version) \
-            --build-arg DEVTOOLSET=$(make -s print-devtoolset) \
-            --build-arg LIBBPF_VERSION=$(make -s print-libbpf-version) \
-            --build-arg LIBPCSCLITE_VERSION=$(make -s print-libpcsclite-version) \
+            --build-arg DEVTOOLSET=$DEVTOOLSET \
+            --build-arg LIBBPF_VERSION=$LIBBPF_VERSION \
+            --build-arg LIBPCSCLITE_VERSION=$LIBPCSCLITE_VERSION \
             --tag $BUILDBOX_CENTOS7 \
             -f Dockerfile-centos7 .
 
