@@ -192,14 +192,18 @@ jobs:
             chmod -R u+w "$(pwd)/.." /tmp/gomodcache 2>/dev/null || true
           fi
           BUILDBOX_IMAGE="ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-${ARCH}"
+          # Mount docker socket and install docker CLI in container
+          DOCKER_GID=$(getent group docker | cut -d: -f3 || echo "999")
           docker run --rm \
-            -u $RUNNER_UID:$RUNNER_GID \
+            --privileged \
+            -u $RUNNER_UID:$DOCKER_GID \
             -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
+            -v /var/run/docker.sock:/var/run/docker.sock \
             -w /go/src/github.com/gravitational/teleport \
             -e GOMODCACHE=/tmp/gomodcache \
             -e CI=true \
             $BUILDBOX_IMAGE \
-            make -C /go/src/github.com/gravitational/teleport oss-deb
+            bash -c "if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com | sh || yum install -y docker; fi && make -C /go/src/github.com/gravitational/teleport oss-deb"
 
       - name: Upload .deb package
         uses: actions/upload-artifact@v4
