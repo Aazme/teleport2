@@ -20,22 +20,52 @@ jobs:
     steps:
       - name: Install build tools
         run: |
-          if command -v apt-get &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y make build-essential
-          elif command -v yum &> /dev/null; then
-            sudo yum install -y make gcc
-          elif command -v dnf &> /dev/null; then
-            sudo dnf install -y make gcc
-          elif command -v apk &> /dev/null; then
-            sudo apk add make gcc musl-dev
+          set -e
+          echo "Checking for make..."
+          if command -v make &> /dev/null; then
+            echo "make is already installed: $(make --version | head -1)"
           else
-            echo "Unknown package manager. Please install make manually."
-            exit 1
+            echo "make not found, installing..."
+            if command -v apt-get &> /dev/null; then
+              sudo apt-get update
+              sudo apt-get install -y make build-essential
+            elif command -v yum &> /dev/null; then
+              sudo yum install -y make gcc
+            elif command -v dnf &> /dev/null; then
+              sudo dnf install -y make gcc
+            elif command -v apk &> /dev/null; then
+              sudo apk add make gcc musl-dev
+            else
+              echo "Unknown package manager. Please install make manually."
+              exit 1
+            fi
+            echo "Verifying make installation..."
+            make --version || (echo "make installation failed" && exit 1)
           fi
 
       - name: Checkout Teleport
         uses: actions/checkout@v4
+
+      - name: Install Go
+        run: |
+          set -e
+          echo "Checking for Go..."
+          if command -v go &> /dev/null; then
+            echo "Go is already installed: $(go version)"
+          else
+            echo "Go not found, installing..."
+            GO_VERSION=$(cd build.assets && make -s print-go-version 2>/dev/null | sed 's/go//' || echo "1.24.6")
+            echo "Installing Go ${GO_VERSION}..."
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+            sudo rm -rf /usr/local/go
+            sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+            echo "export PATH=/usr/local/go/bin:\$PATH" | sudo tee -a /etc/profile.d/go.sh
+            export PATH=/usr/local/go/bin:$PATH
+            echo "Verifying Go installation..."
+            /usr/local/go/bin/go version || (echo "Go installation failed" && exit 1)
+          fi
+          # Ensure Go is in PATH for subsequent steps
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
@@ -60,12 +90,20 @@ jobs:
       - name: Build buildbox-centos7-assets (from source)
         run: |
           cd build.assets
-          make build-centos7-assets
+          # Ensure ARCH is set correctly for the build
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+          export ARCH=$ARCH
+          make build-centos7-assets ARCH=$ARCH
 
       - name: Build buildbox-centos7 (from source)
         run: |
           cd build.assets
-          make buildbox-centos7
+          # Ensure ARCH is set correctly for the build
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+          export ARCH=$ARCH
+          make buildbox-centos7 ARCH=$ARCH
 
       - name: Build webassets (required for teleport binary)
         run: |
@@ -123,19 +161,49 @@ jobs:
     steps:
       - name: Install build tools
         run: |
-          if command -v apt-get &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y make build-essential
-          elif command -v yum &> /dev/null; then
-            sudo yum install -y make gcc
-          elif command -v dnf &> /dev/null; then
-            sudo dnf install -y make gcc
-          elif command -v apk &> /dev/null; then
-            sudo apk add make gcc musl-dev
+          set -e
+          echo "Checking for make..."
+          if command -v make &> /dev/null; then
+            echo "make is already installed: $(make --version | head -1)"
           else
-            echo "Unknown package manager. Please install make manually."
-            exit 1
+            echo "make not found, installing..."
+            if command -v apt-get &> /dev/null; then
+              sudo apt-get update
+              sudo apt-get install -y make build-essential
+            elif command -v yum &> /dev/null; then
+              sudo yum install -y make gcc
+            elif command -v dnf &> /dev/null; then
+              sudo dnf install -y make gcc
+            elif command -v apk &> /dev/null; then
+              sudo apk add make gcc musl-dev
+            else
+              echo "Unknown package manager. Please install make manually."
+              exit 1
+            fi
+            echo "Verifying make installation..."
+            make --version || (echo "make installation failed" && exit 1)
           fi
+
+      - name: Install Go
+        run: |
+          set -e
+          echo "Checking for Go..."
+          if command -v go &> /dev/null; then
+            echo "Go is already installed: $(go version)"
+          else
+            echo "Go not found, installing..."
+            GO_VERSION=$(cd build.assets && make -s print-go-version 2>/dev/null | sed 's/go//' || echo "1.24.6")
+            echo "Installing Go ${GO_VERSION}..."
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+            sudo rm -rf /usr/local/go
+            sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+            echo "export PATH=/usr/local/go/bin:\$PATH" | sudo tee -a /etc/profile.d/go.sh
+            export PATH=/usr/local/go/bin:$PATH
+            echo "Verifying Go installation..."
+            /usr/local/go/bin/go version || (echo "Go installation failed" && exit 1)
+          fi
+          # Ensure Go is in PATH for subsequent steps
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
 
       - name: Checkout Teleport
         uses: actions/checkout@v4
