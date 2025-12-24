@@ -36,7 +36,7 @@ jobs:
         run: corepack enable pnpm
 
       - name: Install Go Toolchain
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           cache: false
           go-version: ${{ steps.toolchain.outputs.go-version }}
