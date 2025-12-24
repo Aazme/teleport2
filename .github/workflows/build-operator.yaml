@@ -66,6 +66,36 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
+      - name: Get Go version for build args
+        id: go-version
+        run: |
+          GO_VERSION=$(cd build.assets && make -s print-go-version 2>/dev/null || echo "go1.24.6")
+          echo "go-version=${GO_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Get protoc version
+        id: protoc-version
+        run: |
+          PROTOC_VERSION=$(cd build.assets && grep -E '^PROTOC_VERSION' versions.mk 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo "26.1")
+          echo "protoc-version=${PROTOC_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Get compiler name
+        id: compiler
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            ARCH="amd64"
+            COMPILER="x86_64-linux-gnu-gcc"
+          elif [ "$ARCH" = "aarch64" ]; then
+            ARCH="arm64"
+            COMPILER="aarch64-linux-gnu-gcc"
+          elif [ "$ARCH" = "armv7l" ] || [ "$ARCH" = "arm" ]; then
+            ARCH="arm"
+            COMPILER="arm-linux-gnueabihf-gcc"
+          else
+            COMPILER="gcc"
+          fi
+          echo "compiler=${COMPILER}" >> $GITHUB_OUTPUT
+
       - name: Set image tags
         id: tags
         run: |
@@ -85,34 +115,23 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
-            GOLANG_VERSION=go${{ steps.version.outputs.go-version }}
-            PROTOC_VERSION=3.20.2
+            GOLANG_VERSION=${{ steps.go-version.outputs.go-version }}
+            PROTOC_VERSION=${{ steps.protoc-version.outputs.protoc-version }}
             BUILDARCH=${{ steps.arch.outputs.arch }}
             TARGETARCH=${{ steps.arch.outputs.arch }}
-            COMPILER_NAME=${{ steps.arch.outputs.compiler }}
+            COMPILER_NAME=${{ steps.compiler.outputs.compiler }}
           platforms: linux/${{ steps.arch.outputs.arch }}
 
-      - name: Get Go version for build args
-        id: go-version
+      - name: Save Docker image (for artifact backup)
         run: |
-          GO_VERSION=$(cd build.assets && make -s print-go-version 2>/dev/null | sed 's/go//' || echo "1.24.6")
-          echo "go-version=${GO_VERSION}" >> $GITHUB_OUTPUT
+          docker pull aazmy/teleport-operator:${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}
+          docker save aazmy/teleport-operator:${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }} \
+            -o build/teleport-operator-image-${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}.tar
 
-      - name: Get compiler name
-        id: compiler
-        run: |
-          ARCH=$(uname -m)
-          if [ "$ARCH" = "x86_64" ]; then
-            ARCH="amd64"
-            COMPILER="x86_64-linux-gnu-gcc"
-          elif [ "$ARCH" = "aarch64" ]; then
-            ARCH="arm64"
-            COMPILER="aarch64-linux-gnu-gcc"
-          elif [ "$ARCH" = "armv7l" ] || [ "$ARCH" = "arm" ]; then
-            ARCH="arm"
-            COMPILER="arm-linux-gnueabihf-gcc"
-          else
-            COMPILER="gcc"
-          fi
-          echo "compiler=${COMPILER}" >> $GITHUB_OUTPUT
+      - name: Upload Docker image (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: teleport-operator-docker-image
+          path: build/teleport-operator-image-*.tar
+          if-no-files-found: warn
 
