@@ -1,0 +1,118 @@
+name: Build Teleport Operator
+run-name: Build Teleport Operator
+# This workflow builds Teleport Operator Docker images following
+# the official build process. It uses the dockerized build approach
+# from integrations/operator/Makefile.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-operator:
+    name: Build Teleport Operator
+    runs-on: self-hosted
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Teleport
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        run: |
+          set -e
+          echo "Checking for Go..."
+          if command -v go &> /dev/null; then
+            echo "Go is already installed: $(go version)"
+          else
+            echo "Go not found, installing..."
+            GO_VERSION=$(cd build.assets && make -s print-go-version 2>/dev/null | sed 's/go//' || echo "1.24.6")
+            echo "Installing Go ${GO_VERSION}..."
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+            sudo rm -rf /usr/local/go
+            sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+            echo "export PATH=/usr/local/go/bin:\$PATH" | sudo tee -a /etc/profile.d/go.sh
+            export PATH=/usr/local/go/bin:$PATH
+            echo "Verifying Go installation..."
+            /usr/local/go/bin/go version || (echo "Go installation failed" && exit 1)
+          fi
+          # Ensure Go is in PATH for subsequent steps
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        with:
+          driver: docker
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep '^VERSION=' Makefile | cut -d= -f2 | tr -d ' ')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Get architecture
+        id: arch
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            ARCH="amd64"
+          fi
+          echo "arch=${ARCH}" >> $GITHUB_OUTPUT
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Set image tags
+        id: tags
+        run: |
+          TAGS="aazmy/teleport-operator:${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}"
+          TAGS="$TAGS,aazmy/teleport-operator:${{ steps.version.outputs.version }}"
+          if [ "${{ steps.arch.outputs.arch }}" = "amd64" ]; then
+            TAGS="$TAGS,aazmy/teleport-operator:latest"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "Tags: $TAGS"
+
+      - name: Build and push Teleport Operator Docker image
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: integrations/operator/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            GOLANG_VERSION=go${{ steps.version.outputs.go-version }}
+            PROTOC_VERSION=3.20.2
+            BUILDARCH=${{ steps.arch.outputs.arch }}
+            TARGETARCH=${{ steps.arch.outputs.arch }}
+            COMPILER_NAME=${{ steps.arch.outputs.compiler }}
+          platforms: linux/${{ steps.arch.outputs.arch }}
+
+      - name: Get Go version for build args
+        id: go-version
+        run: |
+          GO_VERSION=$(cd build.assets && make -s print-go-version 2>/dev/null | sed 's/go//' || echo "1.24.6")
+          echo "go-version=${GO_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Get compiler name
+        id: compiler
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            ARCH="amd64"
+            COMPILER="x86_64-linux-gnu-gcc"
+          elif [ "$ARCH" = "aarch64" ]; then
+            ARCH="arm64"
+            COMPILER="aarch64-linux-gnu-gcc"
+          elif [ "$ARCH" = "armv7l" ] || [ "$ARCH" = "arm" ]; then
+            ARCH="arm"
+            COMPILER="arm-linux-gnueabihf-gcc"
+          else
+            COMPILER="gcc"
+          fi
+          echo "compiler=${COMPILER}" >> $GITHUB_OUTPUT
+
