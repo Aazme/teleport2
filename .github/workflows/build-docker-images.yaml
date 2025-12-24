@@ -153,8 +153,15 @@ jobs:
           # Create and fix permissions on cache directory
           mkdir -p /tmp/gocache
           chown -R $RUNNER_UID:$RUNNER_GID /tmp/gocache 2>/dev/null || true
-          chmod -R 755 /tmp/gocache 2>/dev/null || true
+          chmod -R 777 /tmp/gocache 2>/dev/null || true
           BUILDBOX_IMAGE="ghcr.io/gravitational/teleport-buildbox-centos7:teleport18-${ARCH}"
+          # First run as root to set up cache directory, then run as user
+          docker run --rm \
+            --entrypoint /bin/bash \
+            -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
+            -v /tmp/gocache:/go/cache \
+            $BUILDBOX_IMAGE \
+            -c "mkdir -p /go/cache && chown -R $RUNNER_UID:$RUNNER_GID /go/cache && chmod -R 755 /go/cache"
           docker run --rm \
             -u $RUNNER_UID:$RUNNER_GID \
             -v "$(pwd)/../":/go/src/github.com/gravitational/teleport \
@@ -167,7 +174,7 @@ jobs:
             -e RDPCLIENT_SKIP_BUILD=1 \
             -e ADDFLAGS="-buildvcs=false" \
             $BUILDBOX_IMAGE \
-            bash -c "mkdir -p /go/cache && chown -R $RUNNER_UID:$RUNNER_GID /go/cache 2>/dev/null || true && chmod -R 755 /go/cache 2>/dev/null || true && rm -rf target/release/build target/release/deps/rdp_client* 2>/dev/null || true && make -C /go/src/github.com/gravitational/teleport full build-archive"
+            bash -c "rm -rf target/release/build target/release/deps/rdp_client* 2>/dev/null || true && make -C /go/src/github.com/gravitational/teleport full build-archive"
 
       - name: Build .deb package
         run: |
