@@ -126,6 +126,10 @@ jobs:
           if [ "$RUNNER_UID" = "0" ]; then
             RUNNER_UID=1000
             RUNNER_GID=1000
+            # Fix permissions on workspace and cache directories for container user
+            chown -R $RUNNER_UID:$RUNNER_GID "$(pwd)/.." /tmp/gocache 2>/dev/null || true
+            # Ensure directories are writable
+            chmod -R u+w "$(pwd)/.." /tmp/gocache 2>/dev/null || true
           fi
           make webassets UID=$RUNNER_UID GID=$RUNNER_GID
         env:
