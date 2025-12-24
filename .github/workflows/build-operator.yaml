@@ -45,6 +45,11 @@ jobs:
         with:
           driver: docker
 
+      - name: Clean Docker cache (ensure fresh builds)
+        run: |
+          # Clean Docker build cache to ensure fresh builds
+          docker builder prune -f || true
+
       - name: Get version
         id: version
         run: |
