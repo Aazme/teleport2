@@ -213,7 +213,7 @@ jobs:
             -o build/teleport-image-${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}.tar
 
       - name: Upload Docker image (backup)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: teleport-docker-image
           path: build/teleport-image-*.tar

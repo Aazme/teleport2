@@ -112,7 +112,7 @@ jobs:
           }
 
       - name: Upload Windows binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows-binaries
           path: teleport-windows-binaries-*.zip
